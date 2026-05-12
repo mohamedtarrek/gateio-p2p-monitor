@@ -128,7 +128,7 @@ class GateioScraper:
                 return None
 
             # Trader info - could be nested or flat
-            trader_info = ad_data.get("merchant", ad_data.get("user", ad_data.get("trader", {}))
+            trader_info = ad_data.get("merchant", ad_data.get("user", ad_data.get("trader", {})))
             if isinstance(trader_info, dict):
                 trader_name = trader_info.get("nickname", trader_info.get("name", "Unknown"))
                 trader_id = str(trader_info.get("id", ""))
