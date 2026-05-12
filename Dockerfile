@@ -1,5 +1,5 @@
-# Backend Dockerfile for Gate.io P2P Monitor
-# This Dockerfile builds both frontend and backend for single-service deployment
+# Alternative Dockerfile at project root for Railway
+# Builds both frontend and backend in one image
 
 # Stage 1: Build frontend
 FROM node:18-alpine AS frontend-builder

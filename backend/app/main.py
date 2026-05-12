@@ -5,7 +5,7 @@ Main entry point for the backend server.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from contextlib import asynccontextmanager
 import os
 
@@ -36,36 +36,81 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration - allow frontend to communicate with backend
+# CORS configuration - allow all origins for Railway
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to your frontend domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include API routes
+# Include API routes FIRST (before static files)
 app.include_router(api_router)
 
-# Serve frontend static files (for production deployment)
-frontend_build_path = os.path.join(os.path.dirname(__file__), "../../frontend/out")
-if os.path.exists(frontend_build_path):
-    app.mount("/_next", StaticFiles(directory=os.path.join(frontend_build_path, "_next")), name="next-static")
+# Try multiple possible paths for frontend build
+possible_paths = [
+    os.path.join(os.path.dirname(__file__), "../../frontend/out"),  # Local dev
+    os.path.join(os.path.dirname(__file__), "../frontend/out"),       # Alternative
+    os.path.join(os.path.dirname(__file__), "frontend/out"),        # Another alternative
+    "/app/frontend/out",                                             # Docker/Railway absolute
+    "./frontend/out",                                                # Relative
+    os.path.join(os.getcwd(), "frontend/out"),                      # Current working dir
+]
 
-    @app.get("/")
+frontend_path = None
+for path in possible_paths:
+    if os.path.exists(path) and os.path.isdir(path):
+        # Check if it has index.html
+        if os.path.exists(os.path.join(path, "index.html")):
+            frontend_path = path
+            logger.info(f"Found frontend build at: {frontend_path}")
+            break
+
+if frontend_path:
+    # Mount static files from _next directory (Next.js build output)
+    next_static_path = os.path.join(frontend_path, "_next")
+    if os.path.exists(next_static_path):
+        app.mount("/_next", StaticFiles(directory=next_static_path), name="next-static")
+
+    # Mount other static assets if they exist
+    for static_dir in ["images", "assets", "static"]:
+        static_path = os.path.join(frontend_path, static_dir)
+        if os.path.exists(static_path):
+            app.mount(f"/{static_dir}", StaticFiles(directory=static_path), name=static_dir)
+
+    @app.get("/", include_in_schema=False)
     async def serve_frontend():
-        return FileResponse(os.path.join(frontend_build_path, "index.html"))
+        return FileResponse(os.path.join(frontend_path, "index.html"))
 
-    @app.get("/{path:full_path}")
+    @app.get("/{path:path}", include_in_schema=False)
     async def serve_catch_all(path: str):
-        # API routes are handled by the router, everything else goes to frontend
-        if path.startswith("api/"):
-            return {"detail": "Not Found"}
-        file_path = os.path.join(frontend_build_path, path)
+        # Skip API routes
+        if path.startswith("api/") or path.startswith("docs") or path.startswith("openapi.json"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+        # Try to serve the specific file
+        file_path = os.path.join(frontend_path, path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_build_path, "index.html"))
+
+        # Fallback to index.html for client-side routing
+        index_path = os.path.join(frontend_path, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+else:
+    logger.warning("Frontend build not found. Serving API only.")
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return {
+            "message": "Gate.io P2P Monitor API",
+            "status": "running",
+            "docs": "/docs",
+            "api": "/api/health"
+        }
 
 if __name__ == "__main__":
     import uvicorn
