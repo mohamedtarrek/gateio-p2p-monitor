@@ -1,0 +1,11 @@
+# General
+.env
+.DS_Store
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Railway
+.railway/
